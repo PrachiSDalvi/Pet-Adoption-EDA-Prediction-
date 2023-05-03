@@ -1,0 +1,639 @@
+---
+title: "Pet-Adoption Prediction Analysis"
+output: html_document
+---
+
+PetFinder.my has been Malaysia's leading animal welfare platform since 2008, with a database of more than 150,000 animals. PetFinder collaborates closely with animal lovers, media, corporations, and global organizations to improve animal welfare. Animal adoption rates are strongly correlated to the metadata associated with their online profiles, such as descriptive text and photo characteristics.
+
+In this project, I am analyzing the data to visualize and predict the speed at which a pet is adopted, based on the pet's listing on PetFinder. Also, to analyze if the rate of adoption is dependent on any particular variable like the breed, age, type, sterilization etc.
+
+Let's start by loading the libraries we will need for our analysis.
+
+```{r libraries}
+
+library(dplyr)   # Group by analysis and other SQLish things.
+library(ggplot2) # Plotting, of course
+library(tidyr)   # Data reshaping
+library(stringr) # String manipulation
+library(skimr)       # An automated EDA tool (you saw this in a previous assignment)
+library(plyr)
+library(corrplot)
+library(tidytext)
+library(scales)
+
+```
+
+## Loading the raw data
+
+Now that we have loaded the required libraries, let's read our data that we are using for our analysis. The data is downloaded from a Kaggle competition and it is available at https://www.kaggle.com/c/petfinder-adoption-prediction/data .
+
+```{r readcsv}
+
+pet_adopt_train <- read.csv('petfinder-adoption-prediction/train/train.csv') #Pet details from Training dataset
+clrlbl <- read.csv('petfinder-adoption-prediction/color_labels.csv') #Color details of the pet
+brdlbl <- read.csv('petfinder-adoption-prediction/breed_labels.csv') #Breed details of the pet
+
+```
+
+To begin understanding our dataset we will look at some summary statistics.
+
+### Train Dataset
+```{r summary_TrainDataset}
+
+str(pet_adopt_train)
+
+summary(pet_adopt_train)
+
+```
+There are 14,993 rows and 24 columns in our training set. Below is the data dictionary for the columns and their values, these details are provided as the part of the data on Kaggel
+
+PetID - Unique hash ID of pet profile\
+AdoptionSpeed - Categorical speed of adoption. Lower is faster. This is the value to predict.\
+Type - Type of animal (1 = Dog, 2 = Cat)\
+Name - Name of pet (Empty if not named)\
+Age - Age of pet when listed, in months\
+Breed1 - Primary breed of pet (Refer to BreedLabels dictionary)\
+Breed2 - Secondary breed of pet, if pet is of mixed breed (Refer to BreedLabels dictionary)\
+Gender - Gender of pet (1 = Male, 2 = Female, 3 = Mixed, if profile represents group of pets)\
+MaturitySize - Size at maturity (1 = Small, 2 = Medium, 3 = Large, 4 = Extra Large, 0 = Not Specified)\
+FurLength - Fur length (1 = Short, 2 = Medium, 3 = Long, 0 = Not Specified)\
+Vaccinated - Pet has been vaccinated (1 = Yes, 2 = No, 3 = Not Sure)\
+Dewormed - Pet has been dewormed (1 = Yes, 2 = No, 3 = Not Sure)\
+Sterilized - Pet has been spayed / neutered (1 = Yes, 2 = No, 3 = Not Sure)\
+Health - Health Condition (1 = Healthy, 2 = Minor Injury, 3 = Serious Injury, 0 = Not Specified)\
+Quantity - Number of pets represented in profile\
+Fee - Adoption fee (0 = Free)\
+State - State location in Malaysia (Refer to StateLabels dictionary)\
+RescuerID - Unique hash ID of rescuer\
+VideoAmt - Total uploaded videos for this pet\
+PhotoAmt - Total uploaded photos for this pet\
+Description - Profile write-up for this pet. The primary language used is English, with some in Malay or Chinese.\
+
+
+### Color Dataset
+```{r summary_ColorDataset}
+
+str(clrlbl)
+
+summary(clrlbl)
+
+```
+The Color dataset has 7 rows and 2 columns. 
+ColorID - Unique id for each color
+ColorName - Color description 
+
+
+### Breed Dataset
+```{r summary_BreedDataset}
+
+str(brdlbl)
+
+summary(brdlbl)
+
+```
+
+The Breed dataset has 307 rows and 3 columns. 
+BreedID - Unique id for each Breed
+Type - Type of animal (1 = Dog, 2 = Cat)
+BreedName
+
+
+
+A few observations about the imported data:
+
+We have a mix of numeric and categorical data
+There doesn't seem to be any missing data, at this point.
+
+
+
+```{r skim1}
+
+skim(pet_adopt_train)
+
+
+sapply(pet_adopt_train, function(x)all(is.null(x)))
+sapply(pet_adopt_train, function(x)all(is.na(x)))
+
+```
+
+skim() is an alternative to summary(), quickly providing a broad overview of a data frame. It handles data of all types, dispatching a different set of summary functions based on the types of columns in the data frame. Just trying to review the main dataset (train) again to check for null or NA values. As there is no null or NA values, out dataset is good to start with our analysis.
+
+## Explanatory Data Analysis - EDA
+
+Lets start by seeing the type and the count of pets we have.
+
+```{r Pet_Type}
+
+ggplot(pet_adopt_train, aes(x = as.factor(Type))) +
+  geom_bar(aes(y = (..count..)/sum(..count..)), fill = "SlateBlue4") +
+  geom_text(aes(y = ((..count..)/sum(..count..)), label = scales::percent((..count..)/sum(..count..))), stat = "count", vjust = -0.25) +
+  scale_y_continuous(labels = percent) +
+  labs(title = "Percent Distribution by Pet Type", y = "Percent")+
+  scale_x_discrete(name = "Pet Type", labels  = c('Dog', 'Cat'))
+
+```
+
+As per the above plot, the count of dogs in our dataset is more than the count of Cats(9% more)
+
+As our major variable of interest in this project is the adoption speed, lets start with adoptionspeed variable itself.
+
+### Adoption Speed Analysis
+
+```{r adopt_speed}
+
+ggplot(pet_adopt_train, aes(x = as.factor(AdoptionSpeed))) +
+  geom_bar(aes(y = (..count..)/sum(..count..)), fill = "dodgerblue4") +
+  geom_text(aes(y = ((..count..)/sum(..count..)), label = scales::percent((..count..)/sum(..count..))), stat = "count", vjust = -0.25) +
+  scale_y_continuous(labels = percent) +
+  labs(title = "Rate of Adoption Speed", y = "Percent", x = "Automatic Transmission")+
+  scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days'))
+
+```
+
+From the above plot, we can see that very few pets(only 2.7%) are adopted on the same day that they are put up for adoption, a high percent of pets (28%) are not adopted even after 100 days of listing. The chances of pets adoption in 8-30 days are high. Also, ~50% pets are adopted in the first 30 days of listing after which pet's rate of adoption decreases.
+
+The above graph gives a general adoption speed overview, its does not give any details about the pet type, color or breed. So lets try to see if these variables have impact on the adoption speed.
+
+
+#### Adoption Speed by Pet Type
+```{r adopt_speed_by_Type}
+
+pet_adopt_train %>%
+    mutate(
+        AdoptSpd = as.factor(AdoptionSpeed),
+        Type1 = as.factor(Type)) %>%
+    dplyr::count(AdoptSpd, Type1) %>%
+    complete(AdoptSpd, Type1, fill = list(n = 0)) %>%
+    ggplot(aes(x = as.factor(AdoptSpd), y = n, fill = Type1)) +
+        geom_bar(colour = "black", position = "dodge", stat = "identity") +
+        ggtitle("Adoption Speed by Pet Type") + xlab("Adoption Speed") + ylab("Total Count") + 
+        scale_fill_discrete(name="Pet Type", labels = c("Dog", "Cat"))+
+        geom_text(aes(label = n, group = Type1), position = position_dodge(width = 1), vjust = -0.5) + 
+        scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days'))
+
+
+pet_adopt_train %>% 
+    group_by(Type) %>% 
+    dplyr::mutate(adp_count = n()) %>% 
+    group_by(AdoptionSpeed, adp_count, add=TRUE) %>% 
+    dplyr::summarise(
+        title_count = n(), 
+        title_pctg = round(title_count / first(adp_count) * 100, 1), .groups = 'drop') %>% 
+    ggplot(aes(x = as.factor(AdoptionSpeed), y = title_pctg, fill = as.factor(Type))) +
+    geom_bar(colour = "black", position = "dodge", stat = "identity") +
+    ggtitle("Rate of Adoption Speed by Name by Pet Type") + xlab("Adoption Speed") + ylab("Percent of Pet") + 
+    geom_text(aes(label = title_pctg, group = Type), position = position_dodge(width = 1), vjust = -0.5) + 
+    scale_fill_discrete(name="Pet", labels = c("Dog", "Cat"))+
+    scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days'))
+
+```
+
+As per the "Adoption speed by Pet type" plot we see that Cats are adopted faster, however dogs tend to be adopted more during the later stages of adoption. Major percent of pets don't get adopted even after 100 days of listing. From the "Adoption Speed by Pet Type" we see that more dogs are adopted in 8-30 days, however, the "Rate of Adoption Speed by Name by Pet Type" plot shows that cats are adopted more in 8-30 days. 
+
+#### Adoption Speed by Gender
+```{r adopt_speed_by_Gender}
+
+ggplot(data = pet_adopt_train, aes(x = as.factor(Gender))) +
+geom_bar(fill = "Brown4") +
+  ggtitle("Pet Count by Gender") +
+  ylab("Pet Count") +
+  geom_text(aes(label = ..count..), stat = "count", vjust = 1.5, colour = "White")+
+  scale_x_discrete(name = "Gender", labels  = c("Male", "Female", "Mixed")) 
+
+
+pet_adopt_train %>% 
+    mutate(
+        AdoptSpd = as.factor(AdoptionSpeed),
+        Gender1 = as.factor(Gender)) %>%
+    dplyr::count(AdoptSpd, Gender1) %>% 
+    complete(AdoptSpd, Gender1, fill = list(n = 0)) %>%
+    ggplot(aes(x = AdoptSpd, y = n, fill = Gender1)) +
+    geom_bar(colour = "black", position = "dodge", stat = "identity") +
+    ggtitle("Adoption Speed by Gender") + xlab("Adoption Speed") + ylab("Total Count") + 
+    scale_fill_discrete(name="Gender", labels = c("Male", "Female", "Mixed")) +
+    geom_text(aes(label = n, group = Gender1), position = position_dodge(width = 1), vjust = -0.5) + 
+    scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) 
+
+ 
+pet_adopt_train %>% 
+    group_by(Gender) %>% 
+    dplyr::mutate(adp_count = n()) %>% 
+    group_by(AdoptionSpeed, adp_count, add=TRUE) %>% 
+    dplyr::summarise(
+        title_count = n(), 
+        title_pctg = round(title_count / first(adp_count) * 100, 1), .groups = 'drop') %>% 
+    ggplot(aes(x = as.factor(AdoptionSpeed), y = title_pctg, fill = as.factor(Gender))) +
+    geom_bar(colour = "black", position = "dodge", stat = "identity") +
+    ggtitle("Rate of Adoption Speed by Name by Pet Type") + xlab("Adoption Speed") + ylab("Percent of Pet") + 
+    geom_text(aes(label = title_pctg, group = Gender), position = position_dodge(width = 1), vjust = -0.5) + 
+    scale_fill_discrete(name="Pet", labels = c("Male", "Female", "Mixed"))+
+    scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days'))
+
+```
+
+Our data has high number of female pets than Male or Mixed. So by count female pets are adopted more. However, rate of adoption is more for Male pets in the early days of listing.
+
+
+#### Adoption Speed by Maturity Size
+```{r adopt_speed_by_MaturitySize}
+
+ggplot(data = pet_adopt_train, aes(x = as.factor(MaturitySize))) +
+geom_bar(fill = "Brown4") +
+  ggtitle("Pet Count by Maturity Size") +
+  ylab("Pet Count") +
+  geom_text(aes(label = ..count..), stat = "count", vjust = 1.5, colour = "White")+
+  scale_x_discrete(name = "Gender", labels  = c("Small", "Medium", "Large", "ExtraLarge", "Not Specified")) 
+
+
+pet_adopt_train %>% 
+    group_by(MaturitySize) %>% 
+    dplyr::mutate(msize_count = n()) %>% 
+    group_by(AdoptionSpeed, msize_count, add=TRUE) %>% 
+    dplyr::summarise(
+        adp_mszie_count = n(), 
+        title_pctg = round(adp_mszie_count / first(msize_count) * 100, 1), .groups = 'drop') %>% 
+    ggplot(aes(x = as.factor(AdoptionSpeed), y = title_pctg, fill = as.factor(MaturitySize))) +
+    geom_bar(colour = "black", position = "dodge", stat = "identity") + 
+    ggtitle("Adoption Speed by Maturity Size") + xlab("Adoption Speed") + ylab("Total Count") + 
+    scale_fill_discrete(name="Maturity Size", labels = c("Small", "Medium", "Large", "ExtraLarge", "Not Specified")) +
+    scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days'))
+
+```
+
+As per the plot Pet Count by Maturity Size, we see that count of medium size pets is more than other pets. However, small pets have a high early adoption rate(adopted in 0-7 days) and extra large pets gets adopted more later in the adoption days(8-90 days)
+
+
+#### Adoption Speed by Fur Length
+```{r adopt_speed_by_FurLength}
+
+ggplot(data = pet_adopt_train, aes(x = as.factor(FurLength))) +
+geom_bar(fill = "Brown4") +
+  ggtitle("Pet Count by FurLength") +
+  ylab("Pet Count") +
+  geom_text(aes(label = ..count..), stat = "count", vjust = 1.5, colour = "White")+
+  scale_x_discrete(name = "FurLength", labels  = c("Short", "Medium", "Long", "Not Specified")) 
+
+
+pet_adopt_train %>% 
+    group_by(FurLength) %>% 
+    dplyr::mutate(flen_count = n()) %>% 
+    group_by(AdoptionSpeed, flen_count, add=TRUE) %>% 
+    dplyr::summarise(
+        adp_flen_count = n(), 
+        title_pctg = round(adp_flen_count / first(flen_count) * 100, 1), .groups = 'drop') %>% 
+ggplot(aes(x = as.factor(AdoptionSpeed), y = title_pctg, fill = as.factor(FurLength))) +
+        geom_bar(colour = "black", position = "dodge", stat = "identity") + 
+  geom_text(aes(label = title_pctg, group = FurLength), position = position_dodge(width = 1), vjust = -0.5) + 
+      ggtitle("Adoption Speed byFurLength") + xlab("Adoption Speed") + ylab("Total Count") + 
+        scale_fill_discrete(name="FurLength", labels =  c("Short", "Medium", "Long", "Not Specified")) +
+          scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days'))
+
+
+```
+
+As we saw for Maturity size, we have a similar case for fur length, we have high number of short fur length pets. However, rate of adoption for long fur length pets is more in the early days(0-7 days) and short fur length pets are adopted more 31-90 days.
+
+
+#### Adoption Speed by Vaccination, Deworm & Sterilization
+```{r adopt_speed_by_Vaccinated}
+
+pet_adopt_train %>% 
+    group_by(Vaccinated) %>% 
+    dplyr::mutate(flen_count = n()) %>% 
+    group_by(AdoptionSpeed, flen_count, add=TRUE) %>% 
+    dplyr::summarise(
+        adp_flen_count = n(), 
+        title_pctg = round(adp_flen_count / first(flen_count) * 100, 1), .groups = 'drop') %>% 
+    ggplot(aes(x = as.factor(AdoptionSpeed), y = title_pctg, fill = as.factor(Vaccinated))) +
+    geom_bar(colour = "black", position = "dodge", stat = "identity") + 
+    geom_text(aes(label = title_pctg, group = Vaccinated), position = position_dodge(width = 1), vjust = -0.5) + 
+    ggtitle("Adoption Speed by Vaccinated") + xlab("Adoption Speed") + ylab("Total Count") + 
+    scale_fill_discrete(name="Vaccinated", labels = c("Yes", "No", "Not Sure")) +
+    scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) 
+
+```
+
+
+
+```{r adopt_speed_by_Dewormed}
+
+pet_adopt_train %>% 
+    group_by(Dewormed) %>% 
+    dplyr::mutate(flen_count = n()) %>% 
+    group_by(AdoptionSpeed, flen_count, add=TRUE) %>% 
+    dplyr::summarise(
+        adp_flen_count = n(), 
+        title_pctg = round(adp_flen_count / first(flen_count) * 100, 1), .groups = 'drop') %>% 
+    ggplot(aes(x = as.factor(AdoptionSpeed), y = title_pctg, fill = as.factor(Dewormed))) +
+    geom_bar(colour = "black", position = "dodge", stat = "identity") + 
+    geom_text(aes(label = title_pctg, group = Dewormed), position = position_dodge(width = 1), vjust = -0.5) + 
+    ggtitle("Adoption Speed by Dewormed") + xlab("Adoption Speed") + ylab("Total Count") + 
+    scale_fill_discrete(name="Dewormed", labels = c("Yes", "No", "Not Sure")) +
+    scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days'))
+
+
+```
+
+
+```{r adopt_speed_by_Sterilized}
+
+pet_adopt_train %>% 
+    group_by(Sterilized) %>% 
+    dplyr::mutate(flen_count = n()) %>% 
+    group_by(AdoptionSpeed, flen_count, add=TRUE) %>% 
+    dplyr::summarise(
+        adp_flen_count = n(), 
+        title_pctg = round(adp_flen_count / first(flen_count) * 100, 1), .groups = 'drop') %>% 
+    ggplot(aes(x = as.factor(AdoptionSpeed), y = title_pctg, fill = as.factor(Sterilized))) +
+    geom_bar(colour = "black", position = "dodge", stat = "identity") + 
+    geom_text(aes(label = title_pctg, group = Sterilized), position = position_dodge(width = 1), vjust = -0.5) + 
+    ggtitle("Adoption Speed by Sterilized") + xlab("Adoption Speed") + ylab("Total Count") + 
+    scale_fill_discrete(name="Sterilized", labels = c("Yes", "No", "Not Sure")) +
+    scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days'))
+
+```
+
+Pets needs to be dewormed at a very young age (initial 4-5 weeks after they are born), that might the reason we have a high number of Dewormed pets in our data. However, deworm, vaccination or Sterilization does not have any impact on the pet adoption.
+
+#### Adoption Speed by Health
+```{r adopt_speed_by_Health}
+
+pet_adopt_train %>% 
+    mutate(
+        AdoptSpd = as.factor(AdoptionSpeed),
+        Hlth = as.factor(Health)) %>%
+    dplyr::count(AdoptSpd, Hlth) %>% 
+    complete(AdoptSpd, Hlth, fill = list(n = 0)) %>%
+    ggplot(aes(x = AdoptSpd, y = n, fill = Hlth)) +
+        geom_bar(colour = "black", position = "dodge", stat = "identity") +
+        ggtitle("Adoption Speed by Health") + xlab("Adoption Speed") + ylab("Total Count") + 
+        scale_fill_discrete(name="Health", labels = c("Healthy", "Minor Injury", "Serious Injury", "Not Specified")) +
+        scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) +
+        theme(axis.text.x = element_text(vjust = 1, hjust = 1)) 
+
+
+pet_adopt_train %>% 
+    group_by(Health) %>% 
+    dplyr::mutate(mgr_count = n()) %>% 
+    group_by(AdoptionSpeed, mgr_count, add=TRUE) %>% 
+    dplyr::summarise(
+        title_count = n(), 
+        title_pctg = round(title_count / first(mgr_count) * 100, 1), .groups = 'drop') %>% 
+    ggplot(aes(x = as.factor(AdoptionSpeed), y = title_pctg, fill = as.factor(Health))) +
+    geom_bar(colour = "black", position = "dodge", stat = "identity") + 
+    geom_text(aes(label = title_pctg, group = Health), position = position_dodge(width = 1), vjust = -0.5) + 
+    ggtitle("Adoption Speed by Health by Pet Type") + xlab("Adoption Speed") + ylab("Total Count") + 
+    scale_fill_discrete(name="Health", labels = c("Healthy", "Minor Injury", "Serious Injury", "Not Specified")) +
+    scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) +
+    theme(axis.text.x = element_text(vjust = 1, hjust = 1)) 
+
+```
+
+Again with health we have more healthy pets, and rate of adoption also shows that healthy pets are adopted faster than the ones with minor or serious injury. Also, the chance of a pet with serious injury getting adopted is very low.
+
+
+
+#### Adoption Speed by Age
+```{r adopt_speed_by_Age}
+
+pet_adopt_train %>% 
+    mutate(
+        AdoptSpd = as.factor(AdoptionSpeed),
+        age = Age) %>%
+    dplyr::count(AdoptSpd, age) %>% 
+    complete(AdoptSpd, age, fill = list(n = 0)) %>%
+    ggplot(aes(x = age, y = n, fill = AdoptSpd)) +
+    geom_line(aes(color=AdoptSpd)) +
+    ggtitle("Adoption Speed by Age in Months by Type") + xlab("Age in Months") + ylab("Pet Count") +
+    scale_color_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) 
+        
+pet_adopt_train %>%
+  ggplot(aes(x=as.factor(AdoptionSpeed), y=Age, fill =  as.factor(Type)))+
+  geom_violin() +
+  ggtitle("Adoption Speed by Age in Months by Type") + xlab("Adoption Speed") + ylab("Age in Months") +
+  scale_fill_discrete(name="Pet Type", labels = c("Dog", "Cat"))  +
+  scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) +
+  theme(axis.text.x = element_text(vjust = 1, hjust = 1)) 
+   
+
+#Adding ylim
+pet_adopt_train %>%
+  ggplot(aes(x=as.factor(AdoptionSpeed), y=Age, fill =  as.factor(Type)))+
+  geom_violin() +
+  ylim(0, 100) +
+  ggtitle("Adoption Speed by Age in Months by Type") + xlab("Adoption Speed") + ylab("Age in Months") +
+  scale_fill_discrete(name="Pet Type", labels = c("Dog", "Cat"))  +
+  scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) +
+  theme(axis.text.x = element_text(vjust = 1, hjust = 1)) 
+
+```
+
+Age can be considered as a very imporatant variable in adotpion speed, as younger pets are adopted more quicker than the older ones, in both the pets types.
+
+#### Adoption Speed by Fee
+```{r adopt_speed_by_Fee}
+
+pet_adopt_train %>% 
+    mutate(
+        AdoptSpd = as.factor(AdoptionSpeed),
+        fee = Fee) %>%
+    dplyr::count(AdoptSpd, fee) %>% 
+    complete(AdoptSpd, fee, fill = list(n = 0)) %>%
+    ggplot(aes(x = fee, y = n, fill = AdoptSpd)) +
+    geom_line(aes(color=AdoptSpd)) +
+    ylim (0, 400) +
+    ggtitle("Adoption Speed by Fee") + xlab("Adoption Fee") + ylab("Count of Pets") + 
+    scale_color_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) 
+        
+   
+pet_adopt_train %>%
+  ggplot(aes(x=as.factor(AdoptionSpeed), y=Fee, fill =  as.factor(Type)))+
+  geom_violin() +
+  ggtitle("Adoption Speed by Fee by Pet Type") + xlab("Adoption Speed") + ylab("Fee in $") +
+  scale_fill_discrete(name="Pet Type", labels = c("Dog", "Cat"))  +
+  scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) +
+  theme(axis.text.x = element_text(vjust = 1, hjust = 1)) 
+   
+
+#Adding ylim       
+pet_adopt_train %>%
+  ggplot(aes(x=as.factor(AdoptionSpeed), y=Fee, fill =  as.factor(Type)))+
+  geom_violin() +
+  ylim (0, 400) +
+  ggtitle("Adoption Speed by Fee by Pet Type") + xlab("Adoption Speed") + ylab("Fee in $") +
+  scale_fill_discrete(name="Pet Type", labels = c("Dog", "Cat"))  +
+  scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) +
+  theme(axis.text.x = element_text(vjust = 1, hjust = 1)) 
+
+```
+
+For fees I added the the ylimit of 400 for the adoption fees as there are only 4 pets with high adoption fees(outliers) and by adding the ylim its has helped to get a better picture of the plot.
+Most the pets have a very low adoption fee in the range of 75-100$. For the pets getting adopted early, dogs have a slightly higher adoption fee than cats.
+
+
+#### Adoption Speed by Color
+```{r adopt_speed_by_Clr}
+
+inner_join(pet_adopt_train, clrlbl, by = c("Color1" = "ColorID")) %>% 
+    mutate(
+        AdoptSpd = as.factor(AdoptionSpeed),
+        clr = as.factor(ColorName)) %>%
+    dplyr::count(AdoptSpd, clr) %>% 
+    complete(AdoptSpd, clr, fill = list(n = 0)) %>%
+    ggplot(aes(x = AdoptSpd, y = n, fill = clr)) +
+        geom_bar(colour = "black", position = "dodge", stat = "identity") +
+        ggtitle("Adoption Speed by Color") + xlab("Adoption Speed") + ylab("Total Count") + 
+        scale_fill_discrete(name="Color") +
+        scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days'))
+
+
+inner_join(pet_adopt_train, clrlbl, by = c("Color1" = "ColorID")) %>% 
+    mutate(
+        AdoptSpd = as.factor(AdoptionSpeed),
+        clr = as.factor(ColorName),
+        tp = as.factor(ifelse(Type == 1, "Dog", "Cat"))) %>%
+    dplyr::count(AdoptSpd, clr, tp) %>% 
+    complete(AdoptSpd, clr, fill = list(n = 0)) %>%
+    ggplot(aes(x = AdoptSpd, y = n, fill = clr)) +
+        geom_bar(colour = "black", position = "dodge", stat = "identity") +
+      facet_wrap(~tp) +
+        ggtitle("Adoption Speed by Color by Type") + xlab("Adoption Speed") + ylab("Total Count") + 
+        scale_fill_discrete(name="Color") +
+        scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) +
+        theme(axis.text.x = element_text(angle =45, vjust = 1, hjust = 1)) 
+
+        
+```
+
+Black and Brown seems the common colors of pets in our data.
+
+
+Below is the plot of the top 10 breed in each pet type.
+
+#### Top Breeds
+```{r Pet_Count_by_Breed1}
+  
+inner_join(pet_adopt_train, brdlbl, by = c("Breed1" = "BreedID")) %>% 
+  filter(BreedName != "Mixed Breed") %>%
+  mutate(tp = as.factor(ifelse(Type.x == 1, "Dog", "Cat"))) %>% 
+  group_by(tp, BreedName) %>%
+  dplyr::summarise(Count = n()) %>%
+  top_n(n=10,wt = Count)  %>%
+  arrange(tp, desc(Count)) %>%
+  group_by(tp) %>%
+  #filter(row_number() <=10)
+  ggplot(aes(x = reorder(BreedName, -Count), y = Count, fill = as.factor(tp))) +
+  geom_bar(colour = "black", position = "dodge", stat = "identity") +
+  facet_wrap(~tp, scales = "free") +
+  ggtitle("Top Breeds by Pet Type") + xlab("Breed") + ylab("Total Count") + 
+  scale_fill_discrete(name="Pet") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1)) 
+
+```
+
+I have excluded the Mixed breed from the list as it is a general breedname not specifying any particular name of the breed.
+
+Next, we see adoption speed by breed type(Pure or Cross breed) 
+
+#### Breed Types
+```{r adopt_speed_by_Breedtype}
+
+pet_adopt_train$Breedtype <- ifelse((pet_adopt_train$Breed2 != 0 & pet_adopt_train$Breed1 != pet_adopt_train$Breed2), "Cross Breed", "Pure Breed")
+
+pet_adopt_train %>% 
+    mutate(
+        AdoptSpd = as.factor(AdoptionSpeed),
+        brdtp = as.factor(Breedtype),
+        tp = as.factor(ifelse(Type == 1, "Dog", "Cat"))) %>%
+    dplyr::count(AdoptSpd, brdtp, tp) %>% 
+    complete(AdoptSpd, brdtp, fill = list(n = 0)) %>%
+    ggplot(aes(x = AdoptSpd, y = n, fill = brdtp)) +
+    geom_bar(colour = "black", position = "dodge", stat = "identity") +
+    facet_wrap(~tp) +
+    ggtitle("Adoption Speed by Breed Type") + xlab("Adoption Speed") + ylab("Total Count") + 
+    scale_fill_discrete(name="Breed Type") + 
+    scale_color_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days'))  +
+    scale_x_discrete(name = "Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) +
+    theme(axis.text.x = element_text(angle =45, vjust = 1, hjust = 1)) 
+
+```
+
+Overall pure breed pets are adopted more than Cross breed pets.
+
+Below is the the list of Top 10 Cross breed pets by Pet-type
+
+
+#### Top Cross Breeds
+```{r TopBreed_CrossBreed}
+
+crossbreed <- inner_join(pet_adopt_train, brdlbl, by = c("Breed1" = "BreedID"))
+crossbreed2 <-  inner_join(crossbreed, brdlbl, by = c("Breed2" = "BreedID"))
+
+crossbreed2 %>% 
+    filter(BreedName.x != "Mixed Breed",
+      BreedName.y != "Mixed Breed",
+      Breedtype == "Cross Breed") %>%
+    mutate(
+        crsbrd = str_c(BreedName.x,"-",BreedName.y),
+        tp = as.factor(ifelse(Type.x == 1, "Dog", "Cat"))) %>% 
+        group_by(tp, crsbrd) %>%
+    dplyr::summarise(Count = n()) %>%
+    top_n(n=10,wt = Count)  %>%
+    arrange(tp, desc(Count)) %>%
+    group_by(tp) %>%
+    #filter(row_number() <=10)
+    ggplot(aes(x = reorder(crsbrd, -Count), y = Count, fill = as.factor(tp))) +
+    geom_bar(colour = "black", position = "dodge", stat = "identity") +
+    facet_wrap(~tp, scales = "free") +
+    ggtitle("Top 10 Cross Breed by Pet Type") + xlab("Cross Breed") + ylab("Total Count") + 
+    scale_fill_discrete(name="Pet") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1)) 
+
+```
+
+#### Does having pet name has any impact on adoption speed?
+
+```{r adopt_speed_by_Name}
+
+pet_adopt_train %>% 
+    mutate(
+        name = as.factor(ifelse(Name == "", "No Name", "Has Name")),
+        tp = as.factor(ifelse(Type == 1, "Dog", "Cat"))) %>%
+    dplyr::count(name, tp) %>% 
+    complete(name, fill = list(n = 0)) %>%
+    ggplot(aes(x = name, y = n, fill = tp)) +
+    geom_bar(colour = "black", position = "dodge", stat = "identity") +
+    facet_wrap(~tp) +
+    ggtitle("Name by Pet Type") + xlab("Name") + ylab("Total Count") + 
+    scale_fill_discrete(name="Pet Type")
+
+pet_adopt_train %>% 
+    mutate(
+        name = as.factor(ifelse(Name == "", "No Name", "Has Name")),
+        AdoptSpd = as.factor(AdoptionSpeed))%>%
+    dplyr::count(name, AdoptSpd) %>% 
+    complete(name, fill = list(n = 0)) %>%
+    ggplot(aes(x = name, y = n, fill = AdoptSpd)) +
+    geom_bar(colour = "black", position = "dodge", stat = "identity") +
+    ggtitle("Adoption Speed by Name type") + xlab("Name") + ylab("Total Count") + 
+    scale_fill_discrete(name="Adoption Speed", labels  = c('Same Day', '1-7days','8-30 days','31-90 days','> 100 days')) 
+
+```
+
+If we consider count this will be biased analysis as we have a very high number of pets with names. so we can say that having name does not have any impact on adoption speed.
+
+#### Correlation Matrix
+```{r corrplot}
+
+cor_mat <- cor(pet_adopt_train[, -c(2,19,21,22,25)])
+#cor_mat
+#corrplot(cor_mat, method = 'circle')
+corrplot(cor_mat, method="color", type="lower")
+        
+```
+
+The above correlation matrix shows the relation of adoption speed to other variables. From the matrix we can see that there isnt any significant relation between adoption speed and other variables. The correlation between AdoptionSpeed and Age showed that perhaps younger pets get adopted faster, but even as one of the highest correlations in the column, the relation was weak at around 0.1 correlation. On the other hand, we saw that Vaccinated, Dewormed, and Sterilized columns have correlation between each other.
+
+
+
+Let's take our further analysis to Pet_Image_Reading.ipynb file, where we will be doing some image analysis and modeling to predict the adoption speed.
